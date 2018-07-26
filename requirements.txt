@@ -1,0 +1,8 @@
+dicom-numpy>=0.1.2
+matplotlib>=2.2.2
+numpy>=1.15.0
+pydicom>=1.1.0
+pypng>=0.0.18
+PyQt5>=5.11.2
+scipy>=1.1.0
+toml>=0.9.4

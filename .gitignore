@@ -1,0 +1,7 @@
+**/*DS_Store*
+**/*(SFConflict*
+**/*.pyc
+.venv
+.dicom_to_png.conf
+example_data
+example_output
