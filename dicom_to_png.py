@@ -165,9 +165,9 @@ class ConverterWindow(QMainWindow):
         self.addFilesButton.clicked.connect(lambda: self.addFilesDialog())
         self.addFilesButton.setToolTip("Click to add one or more DICOM files.")
 
-        self.addDirButton = QPushButton("Add Directory")
+        self.addDirButton = QPushButton("Add Folder")
         self.addDirButton.clicked.connect(lambda: self.addDirectoryDialog())
-        self.addDirButton.setToolTip("Click to add a DICOM directory or directory tree.")
+        self.addDirButton.setToolTip("Click to add a DICOM folder or folder tree.")
         
         self.stopButton = QPushButton("Stop")
         self.stopButton.setDisabled(True)
@@ -195,7 +195,7 @@ class ConverterWindow(QMainWindow):
         self.log.setReadOnly(True)
         gridLayout.addWidget(self.log, 3, 0, 1, 4)
 
-        self.setStatusBar("Output Directory: {}".format(abbreviate_path(self.outputDir)))
+        self.setStatusBar("Output Folder: {}".format(abbreviate_path(self.outputDir)))
 
     @pyqtSlot()
     def stopAndExit(self):
@@ -233,7 +233,7 @@ class ConverterWindow(QMainWindow):
         }
         self.processNewItems(new_items)
 
-    def showDirectoryDialog(self, caption="Select DICOM Directory."):
+    def showDirectoryDialog(self, caption="Select DICOM Folder."):
         options = QFileDialog.Options()
         # options |= QFileDialog.DontUseNativeDialog
         dirname = QFileDialog.getExistingDirectory(self, caption, os.getcwd(), options=options)
@@ -264,9 +264,9 @@ class ConverterWindow(QMainWindow):
             self.config['output_path'] = dirname
             self.outputDir = dirname
             saveConfigToFile(self.config)
-            self.setStatusBar("Output Directory: {}".format(abbreviate_path(self.outputDir)))
+            self.setStatusBar("Output Folder: {}".format(abbreviate_path(self.outputDir)))
         else:
-            print("Set output directory failed.")
+            print("Set output folder failed.")
 
     # --------------------------------------------------
     # Originally inspired by:
@@ -283,7 +283,7 @@ class ConverterWindow(QMainWindow):
         for url in event.mimeData().urls():
             path = url.path()
             if os.path.isdir(path):
-                self.addResponse("Directory: {}".format(os.path.basename(os.path.normpath(path))))
+                self.addResponse("Folder: {}".format(os.path.basename(os.path.normpath(path))))
                 new_items['dirs'].append(path)
             else:
                 path = url.toLocalFile()
@@ -382,7 +382,7 @@ class ConverterWindow(QMainWindow):
         for dirname in dirs:
             dir_files = []
             if os.path.isdir(dirname):
-                # Fancy list comprehension for directory walk from https://stackoverflow.com/a/18394205
+                # Fancy list comprehension for folder walk from https://stackoverflow.com/a/18394205
                 dir_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(dirname) for f in filenames if os.path.splitext(f)[1] in ['.dcm', '.dicom', '']]
             files.extend(dir_files)
         self.addResponse("Processing {} new files...".format(len(files)))
