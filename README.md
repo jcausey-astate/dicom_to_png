@@ -3,7 +3,39 @@ Converts individual DICOM files PNG format, or directories containing DICOM
 files to flattened directories of PNG images.
 
 ## Usage:
+### GUI
+#### Drag-and-Drop interface
+Simply drag-and-drop DICOM files or DICOM directories (or even folder trees)
+onto the application window to convert the files to PNG.  The assumption is made that
+all files will be uniquely named.
 
+#### The "Add Files" button
+Click the "Add Files" button to add DICOM files from a system dialog.  You may chose one file or multiple files.
+
+#### The "Add Folder" button
+Click the "Add folder" button to select a DICOM folder (or folder tree) to automatically (and recursively) convert all DICOM files in the folder (or tree) to PNG, and place the converted files into the output folder.
+
+#### The "Save to..." button
+Click the "Save to..." button to change the output folder location.  This is the folder where output (PNG) images are saved.  By default, it will be the "dicom_to_png" folder in your "Home" folder, but you can select any drive or folder you like with this button.
+
+#### The "Stop" button
+When you start a conversion batch, you can stop it if necessary by pressing this button.  Any files already converted before pressing "Stop" will be located in the output folder.
+
+#### The "Exit" button
+Press "Exit" to safely exit the converter application.  This button is automatically disabled when conversion work is ongoing.  If you really need to exit while conversions are incomplete, you can use the "Stop" button to stop first, then "Exit", or use the native close button in the title bar.
+
+### CLI
+CLI not implemented yet.
+
+## Features
+The DICOM image is processed by applying re-scaling as specified in the DICOM metadata, and if there is a LUT (intensity Look Up Table) present in the DICOM metadata, the (first available) LUT is applied as well.  Output is saved as greyscale PNG images in the output folder.
+
+## Limitations
+This tool works for DICOM images that contain one "slice" per file.  Multi-slice (3+ dimensional) DICOM is not supported.  All files must be uniquely named; output filenames match the DICOM file names with the addition of the ".png" extension.
+
+## Known Issues
+* In Mac OS, the "Save to..." dialog does not use the native interface.  There is an unresolved crash if the "New Folder" button in the native interface is pressed.  The non-native dialog does not have this issue.
+* In Mac OS, trying to create a "New Folder" in the "Add Folder" dialog may cause a crash.
 
 ## License:
 The MIT License
