@@ -2,7 +2,32 @@
 Converts individual DICOM files PNG format, or directories containing DICOM
 files to flattened directories of PNG images.
 
-## Usage:
+## Installation
+It is recommended to use a [virtual environment](https://virtualenv.pypa.io/en/stable/).
+
+### Requirements
+**System:**
+
+* [QT5](https://www.qt.io/)
+
+**Python:**
+
+* dicom-numpy
+* numpy
+* pydicom
+* pypng
+* PyQt5
+* toml
+
+To aid in setup, the file `requirements.txt` is provided; use it with the command:
+
+```bash
+pip install -r requirements.txt
+```
+
+Note that you will need to install [QT5](https://www.qt.io/) first.
+
+## Usage
 ### GUI
 #### Drag-and-Drop interface
 Simply drag-and-drop DICOM files or DICOM directories (or even folder trees)
@@ -37,8 +62,7 @@ This tool works for DICOM images that contain one "slice" per file.  Multi-slice
 * In Mac OS, the "Save to..." dialog does not use the native interface.  There is an unresolved crash if the "New Folder" button in the native interface is pressed.  The non-native dialog does not have this issue.
 * In Mac OS, trying to create a "New Folder" in the "Add Folder" dialog may cause a crash.
 
-## License:
-The MIT License
+## MIT License
 
 Copyright 2018 Jason L Causey, Arkansas State University
 
