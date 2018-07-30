@@ -8,6 +8,7 @@ It is recommended to use a [virtual environment](https://virtualenv.pypa.io/en/s
 ### Requirements
 **System:**
 
+* [Python 3](https://www.python.org/)
 * [QT5](https://www.qt.io/)
 
 **Python:**
@@ -61,6 +62,14 @@ This tool works for DICOM images that contain one "slice" per file.  Multi-slice
 ## Known Issues
 * In Mac OS, the "Save to..." dialog does not use the native interface.  There is an unresolved crash if the "New Folder" button in the native interface is pressed.  The non-native dialog does not have this issue.
 * In Mac OS, trying to create a "New Folder" in the "Add Folder" dialog may cause a crash.
+
+* If you see an "invalid syntax" error similar to the one shown below, you are probably using Python 2 to execute the program.  Try using `python3 dicom_to_png.py` instead (i.e. this program can only run from Python 3.x).
+
+```text
+    if dialog.exec():
+                 ^
+SyntaxError: invalid syntax
+```
 
 ## MIT License
 
