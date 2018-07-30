@@ -146,6 +146,9 @@ def path_to_list(file_path):
     if file_path == "" or file_path == os.path.sep:
         return []
     rest, last = os.path.split(file_path)
+    # Check to see if we have hit a "root" (or "drive"), bail out if so.
+    if rest == file_path:
+        return [rest]
     return path_to_list(rest) + [last] if last != "" else path_to_list(rest)
 
 
