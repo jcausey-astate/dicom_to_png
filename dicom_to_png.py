@@ -400,7 +400,7 @@ class ConverterWindow(QMainWindow):
         if len(self.queue) > 0:
             self.indicateThreadsRunning(True)
             self.setStatusBar("Working...")
-            startThreads()
+            self.startThreads()
 
     @pyqtSlot()
     def abortWorkers(self):
