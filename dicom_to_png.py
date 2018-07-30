@@ -4,7 +4,7 @@ Convert DICOM files to corresponding PNG files.
 NOTE:  Only works with DICOM files containing a single
 layer!
 """
-import sys, os, collections, toml, asyncio, hashlib, time
+import sys, os, collections, toml, asyncio, hashlib, time, platform
 import numpy as np, png, pydicom, multiprocessing
 from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
@@ -159,6 +159,16 @@ def abbreviate_path(file_path, length=2):
         abbrev = os.path.join("...", *path_list[-length:])
     return abbrev
 
+def win_safe_path(path):
+    '''
+    Remove leading 'slash' in Windows paths, which should be relative or begin with 
+    a drive letter, not a slash.
+    '''
+    # Sometimes in Windows, you end up with a path like '/C:/foo/bar' --- not sure why.
+    if platform.system().lower() == 'windows':
+        if path[0] in ['/', '\\']:
+            return path[1:]
+    return path
 
 class ConverterWindow(QMainWindow):
     NUM_THREADS = multiprocessing.cpu_count()
@@ -166,6 +176,7 @@ class ConverterWindow(QMainWindow):
     sig_abort_workers = pyqtSignal()
 
     def __init__(self):
+        self.platform = platform.system().lower()
         QMainWindow.__init__(self)
         self.config = readConfigFile()
         self.setWindowTitle("DICOM to PNG")
@@ -273,7 +284,7 @@ class ConverterWindow(QMainWindow):
         dirname = QFileDialog.getExistingDirectory(
             self, caption, os.getcwd(), options=options
         )
-        return dirname
+        return win_safe_path(dirname)
 
     def addDirectoryDialog(self):
         dirname = self.showDirectoryDialog()
@@ -289,11 +300,11 @@ class ConverterWindow(QMainWindow):
         # some reason the "New Folder" button will crash the app.  So on Mac, use the
         # non-native dialog instead for now.
         # Re-visit this in the future to try to remove it...
-        if sys.platform == "darwin":
+        if self.platform == "darwin":
             dialog.setOption(QFileDialog.DontUseNativeDialog, True)
 
         if dialog.exec():
-            dirname = dialog.selectedFiles()[0]
+            dirname = win_safe_path(dialog.selectedFiles()[0])
             self.config["output_path"] = dirname
             self.outputDir = dirname
             saveConfigToFile(self.config)
@@ -316,7 +327,7 @@ class ConverterWindow(QMainWindow):
     def dropEvent(self, event):
         new_items = {"files": [], "dirs": []}
         for url in event.mimeData().urls():
-            path = url.path()
+            path = win_safe_path(url.path())
             if os.path.isdir(path):
                 self.addResponse(
                     "Folder: {}".format(os.path.basename(os.path.normpath(path)))
@@ -430,6 +441,7 @@ class ConverterWindow(QMainWindow):
         dirs = new_items["dirs"]
         for dirname in dirs:
             dir_files = []
+            dirname = win_safe_path(dirname)
             if os.path.isdir(dirname):
                 # Fancy list comprehension for folder walk from https://stackoverflow.com/a/18394205
                 dir_files = [
@@ -439,8 +451,12 @@ class ConverterWindow(QMainWindow):
                     if os.path.splitext(f)[1] in [".dcm", ".dicom", ""]
                 ]
             files.extend(dir_files)
-        self.addResponse("Processing {} new files...".format(len(files)))
+        if len(files) > 0:
+            self.addResponse("Processing {} new files...".format(len(files)))
+        else:
+            self.addResponse("No new DICOM files were found.".format(len(files)))
         for fname in files:
+            fname = win_safe_path(fname)
             if fname in converting:
                 self.setResponse("[ERROR]: {} added more than once.".format(fname))
                 self.abortWorkers()
