@@ -4,7 +4,7 @@ Convert DICOM files to corresponding PNG files.
 NOTE:  Only works with DICOM files containing a single
 layer!
 """
-import sys, os, collections, toml, asyncio, hashlib, time, platform
+import sys, os, collections, toml, asyncio, hashlib, time, platform, queue
 import numpy as np, png, pydicom, multiprocessing
 from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
@@ -91,6 +91,7 @@ def apply_LUT(img, hdr):
     """
     lut_seq = getattr(hdr, "VOILUTSequence", None)
     if lut_seq is None:
+        print("No LUT for image {}".format(generate_unique_filename(hdr)))
         return img, hdr
     # Use the first available LUT:
     lut_desc = getattr(lut_seq[0], "LUTDescriptor", None)
@@ -129,6 +130,40 @@ def apply_LUT(img, hdr):
     return img2.astype(orig_type), hdr
 
 
+def apply_window(img, hdr):
+    """
+    Apply intensity window as defined in the DICOM header to the image (if any window
+    is defined).
+    This is applied after any LUT and rescale/intercept.
+
+    See https://www.dabsoft.ch/dicom/3/C.11.2.1.2/
+
+    This implementation will set the output range (min, max) equal to the 
+    input range (original min, max).  If scaling is desired, do that after calling
+    this function.
+    """
+    window_center = getattr(hdr, "WindowCenter", None)
+    if window_center is None:
+        return img, hdr
+    y_min = img.min()
+    y_max = img.max()
+    window_width = getattr(hdr, "WindowWidth", None)
+    window_center, window_width = float(window_center), float(window_width)
+
+    img_out = np.zeros_like(img)
+
+    # y = ((x - (c - 0.5)) / (w-1) + 0.5) * (y max - y min )+ y min
+    img_out = ((img - (window_center - 0.5)) / (window_width - 1) + 0.5) * (
+        y_max - y_min
+    ) + y_min
+    #  if (x <= c - 0.5 - (w-1)/2), then y = y min
+    img_out[img <= (window_center - 0.5 - (window_width - 1) / 2.0)] = y_min
+    # else if (x > c - 0.5 + (w-1)/2), then y = y max ,
+    img_out[img > (window_center - 0.5 + (window_width - 1) / 2.0)] = y_max
+
+    return img_out, hdr
+
+
 def read_dicom_raw(file_path):
     dicom = pydicom.read_file(file_path)
     img = dicom.pixel_array
@@ -139,6 +174,7 @@ def read_dicom(file_path):
     img, hdr = read_dicom_raw(file_path)
     img, hdr = rescale_image(img, hdr)
     img, hdr = apply_LUT(img, hdr)
+    img, hdr = apply_window(img, hdr)
     return img, hdr
 
 
@@ -159,16 +195,39 @@ def abbreviate_path(file_path, length=2):
         abbrev = os.path.join("...", *path_list[-length:])
     return abbrev
 
+
 def win_safe_path(path):
-    '''
+    """
     Remove leading 'slash' in Windows paths, which should be relative or begin with 
     a drive letter, not a slash.
-    '''
+    """
     # Sometimes in Windows, you end up with a path like '/C:/foo/bar' --- not sure why.
-    if platform.system().lower() == 'windows':
-        if path[0] in ['/', '\\']:
+    if platform.system().lower() == "windows":
+        if path[0] in ["/", "\\"]:
             return path[1:]
     return path
+
+
+def generate_unique_filename(dicom_header, extension=".dcm"):
+    """
+    Generates and returns a unique filename based on the Patient ID and
+    internal unique idientifier contained in the DICOM header metadata.
+
+    Unique names are created in the following format:
+
+        ```text {PatientID}_{InstanceHash}{Extension}
+        ```
+    where `{PatientID}` is the `Patient ID` field from the DICOM header,
+    `{InstanceHash}` is the initial 16 characters of the hexadecimal encoding
+    of the *sha-1* hash of the `SOP Instance UID` field from the DICOM header,
+    and `{Extension}` is the file extension e.g. `.dcm` for DICOM files and
+    `.png` for PNG format.
+    """
+    patient_id = dicom_header.PatientID
+    sop_instance_uid = dicom_header.SOPInstanceUID
+    instance_hash = hashlib.sha1(sop_instance_uid.encode("utf-8")).hexdigest()[:16]
+    return "{}_{}{}".format(patient_id, instance_hash, extension)
+
 
 class ConverterWindow(QMainWindow):
     NUM_THREADS = multiprocessing.cpu_count()
@@ -186,7 +245,7 @@ class ConverterWindow(QMainWindow):
         # keep it large enough to be an easy target
         self.setMinimumSize(QSize(400, 600))
         self.responseLines = collections.deque(maxlen=20)
-        self.queue = {}
+        self.queue = queue.Queue()
         self.working = {}
         self.convertedCount = 0
 
@@ -358,7 +417,7 @@ class ConverterWindow(QMainWindow):
         global conversion_serial
         self.indicateThreadsRunning(True)
         self.setStatusBar("Working...")
-        if len(self.queue) == 0:
+        if self.queue.empty():
             self.setStatusBar(
                 "{} Files converted.  You can add more, or exit.".format(
                     self.convertedCount
@@ -366,49 +425,51 @@ class ConverterWindow(QMainWindow):
             )
             self.indicateThreadsRunning(False)
             # self.setStatusBar("Ready.")
-        for id in list(self.queue.keys()):
-            if not len(self.working) < self.NUM_THREADS:
-                break
-            info = self.queue[id]
-            # self.addResponse('Starting conversion for "{}".'.format(info['basename']))
-            conversion_serial += 1
-            worker_id = conversion_serial
-            worker = ConversionWorker(worker_id, info)
-            thread = QThread()
-            thread.setObjectName("{}".format(id))
-            del self.queue[id]
-            self.working[worker_id] = (
-                info,
-                worker,
-                thread,
-                id,
-            )  # need to store worker and thread too otherwise will be gc'd
-            worker.moveToThread(thread)
+        try:
+            while (not self.queue.empty()) and (len(self.working) < self.NUM_THREADS):
+                info = self.queue.get_nowait()
+                # self.addResponse('Starting conversion for "{}".'.format(info['basename']))
+                conversion_serial += 1
+                worker_id = conversion_serial
+                worker = ConversionWorker(worker_id, info)
+                thread = QThread()
+                thread.setObjectName("{}".format(id))
+                self.working[worker_id] = (
+                    info,
+                    worker,
+                    thread,
+                    id,
+                )  # need to store worker and thread too otherwise will be gc'd
+                worker.moveToThread(thread)
 
-            # get progress messages from worker:
-            worker.sig_done.connect(self.onWorkerDone)
-            worker.sig_msg.connect(self.addResponse)
+                # get progress messages from worker:
+                worker.sig_done.connect(self.onWorkerDone)
+                worker.sig_msg.connect(self.addResponse)
 
-            # in case we need to stop the worker:
-            self.sig_abort_workers.connect(worker.abort)
+                # in case we need to stop the worker:
+                self.sig_abort_workers.connect(worker.abort)
 
-            # start the worker:
-            thread.started.connect(worker.doConversion)
-            thread.start()  # this will emit 'started' and start thread's event loop
+                # start the worker:
+                thread.started.connect(worker.doConversion)
+                thread.start()  # this will emit 'started' and start thread's event loop
+        except queue.Empty:
+            pass  # When the queue is empty, we just stop creating threads.
 
-    @pyqtSlot(int)
-    def onWorkerDone(self, worker_id):
+    @pyqtSlot(int, bool)
+    def onWorkerDone(self, worker_id, error):
         thread = self.working[worker_id][2]
         # self.addResponse('Finished converting "{}"'.format(self.working[worker_id][0]['basename']))
         thread.quit()  # ask the thread to quit.
         thread.wait()  # <- so you need to wait for it to *actually* quit
         del self.working[worker_id]  # Now you can delete it without error.
-        self.convertedCount += 1
-        if len(self.working) == 0 and len(self.queue) == 0:
+        self.queue.task_done()
+        if not error:
+            self.convertedCount += 1
+        if len(self.working) == 0 and self.queue.empty():
             self.addResponse("[DONE]: All conversions finished.")
             self.setStatusBar("Ready.")
             self.indicateThreadsRunning(False)
-        if len(self.queue) > 0:
+        if not self.queue.empty():
             self.indicateThreadsRunning(True)
             self.setStatusBar("Working...")
             self.startThreads()
@@ -464,11 +525,13 @@ class ConverterWindow(QMainWindow):
             job_id = hashlib.sha1(
                 "{}{}".format(fname, time.process_time()).encode("ascii")
             ).hexdigest()
-            self.queue[job_id] = {
-                "basename": os.path.basename(fname),
-                "file_path": fname,
-                "output_path": self.outputDir,
-            }
+            self.queue.put(
+                {
+                    "basename": os.path.basename(fname),
+                    "file_path": fname,
+                    "output_path": self.outputDir,
+                }
+            )
             converting.add(fname)
 
         self.startThreads()
@@ -480,7 +543,7 @@ class ConversionWorker(QObject):
     Must derive from QObject in order to emit signals, connect slots to other signals, and operate in a QThread.
     """
 
-    sig_done = pyqtSignal(int)  # worker id: emitted at end of work()
+    sig_done = pyqtSignal(int, bool)  # worker id: emitted at end of work()
     sig_msg = pyqtSignal(str)  # message to be shown to user
 
     class AbortConversion(Exception):
@@ -512,6 +575,7 @@ class ConversionWorker(QObject):
         Performs the conversion from DICOM to PNG, applying any LUT that is embedded.
         """
         thread_id = int(QThread.currentThreadId())  # cast to int() is necessary
+        error_flag = False
         # thread_name = QThread.currentThread().objectName()
         # print("Worker: id {}  name {}".format(thread_id, thread_name))
 
@@ -521,16 +585,15 @@ class ConversionWorker(QObject):
         basename = info["basename"]
         self.sig_msg.emit('Starting conversion for "{}"'.format(basename, thread_id))
         try:
-            output_file = "{}.png".format(
-                os.path.splitext(os.path.basename(file_path))[0]
-            )
-            output_file = os.path.join(output_path, output_file)
+            img, hdr = read_dicom(file_path)
+            self.checkPoint(info, "[0]")
+
             if not os.path.isdir(output_path):
                 os.makedirs(output_path)
 
-            self.checkPoint(info, "[0]")
-
-            img, hdr = read_dicom(file_path)
+            # Make a unique filename based on the DICOM header info:
+            output_file = generate_unique_filename(hdr, ".png")
+            output_file = os.path.join(output_path, output_file)
 
             self.checkPoint(info, "[1]")
 
@@ -556,16 +619,14 @@ class ConversionWorker(QObject):
             t = QThread.currentThread()
             if t.isRunning():
                 t.quit()  # This thread needs to quit!
-            return
+            error_flag = True
         except Exception as e:
-            self.sig_msg.emit(
-                '[FAIL]: Failed converting "{}" (#{})'.format(basename, thread_id)
-            )
+            self.sig_msg.emit('[FAIL]: Failed converting "{}" ({})'.format(basename, e))
             t = QThread.currentThread()
             if t.isRunning():
                 t.quit()  # This thread needs to quit!
-            return
-        self.sig_done.emit(self.id)
+            error_flag = True
+        self.sig_done.emit(self.id, error_flag)
 
     def abort(self):
         if not self.abort_requested:
