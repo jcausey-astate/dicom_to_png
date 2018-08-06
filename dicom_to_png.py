@@ -91,7 +91,7 @@ def apply_LUT(img, hdr):
     """
     lut_seq = getattr(hdr, "VOILUTSequence", None)
     if lut_seq is None:
-        print("No LUT for image {}".format(generate_unique_filename(hdr)))
+        # print("No LUT for image {}".format(generate_unique_filename(hdr)))
         return img, hdr
     # Use the first available LUT:
     lut_desc = getattr(lut_seq[0], "LUTDescriptor", None)
@@ -248,6 +248,7 @@ class ConverterWindow(QMainWindow):
         self.queue = queue.Queue()
         self.working = {}
         self.convertedCount = 0
+        self.didAbort = False
 
         centralWidget = QWidget(self)
         gridLayout = QGridLayout()
@@ -458,15 +459,20 @@ class ConverterWindow(QMainWindow):
     @pyqtSlot(int, bool)
     def onWorkerDone(self, worker_id, error):
         thread = self.working[worker_id][2]
-        # self.addResponse('Finished converting "{}"'.format(self.working[worker_id][0]['basename']))
-        thread.quit()  # ask the thread to quit.
-        thread.wait()  # <- so you need to wait for it to *actually* quit
+        # self.addResponse('Finished converting "{}" (error? {})'.format(self.working[worker_id][0]['basename'], error))
+        if thread.isRunning():
+            thread.quit()  # ask the thread to quit.
+            thread.wait()  # <- so you need to wait for it to *actually* quit
         del self.working[worker_id]  # Now you can delete it without error.
         self.queue.task_done()
         if not error:
             self.convertedCount += 1
         if len(self.working) == 0 and self.queue.empty():
-            self.addResponse("[DONE]: All conversions finished.")
+            if not self.didAbort:
+                self.addResponse("[DONE]: All conversions finished.")
+            else:
+                self.addResponse("[STOPPED]: All conversions have been stopped.")
+                self.didAbort = False
             self.setStatusBar("Ready.")
             self.indicateThreadsRunning(False)
         if not self.queue.empty():
@@ -478,23 +484,10 @@ class ConverterWindow(QMainWindow):
     def abortWorkers(self):
         self.stopButton.setEnabled(False)
         self.addResponse("Stopping in-progress conversions...")
-        self.sig_abort_workers.emit()
-        # Send all "abort" requests
-        for worker_id in self.working:
-            worker = self.working[worker_id][1]
-            worker.abort()
-        # Then wait for them all to quit.
-        for worker_id in list(self.working.keys()):
-            thread = self.working[worker_id][2]
-            thread.wait()  # <- so you need to wait for it to *actually* quit
-            del self.working[worker_id]
-
-        # even though threads have exited, there may still be messages on the main thread's
-        # queue (messages that threads emitted before the abort):
-        self.working = {}
-        self.addResponse("All threads exited...")
-        self.indicateThreadsRunning(False)
-        self.setStatusBar("Ready.")
+        self.didAbort = True
+        with self.queue.mutex:
+            self.queue.queue.clear()
+            self.sig_abort_workers.emit()
 
     def processNewItems(self, new_items):
         converting = set()
@@ -585,8 +578,9 @@ class ConversionWorker(QObject):
         basename = info["basename"]
         self.sig_msg.emit('Starting conversion for "{}"'.format(basename, thread_id))
         try:
-            img, hdr = read_dicom(file_path)
             self.checkPoint(info, "[0]")
+            img, hdr = read_dicom(file_path)
+            self.checkPoint(info, "[1]")
 
             if not os.path.isdir(output_path):
                 os.makedirs(output_path)
@@ -595,7 +589,7 @@ class ConversionWorker(QObject):
             output_file = generate_unique_filename(hdr, ".png")
             output_file = os.path.join(output_path, output_file)
 
-            self.checkPoint(info, "[1]")
+            self.checkPoint(info, "[2]")
 
             # Convert to greyscale in range 0-255
             img = img.astype(float)
@@ -607,7 +601,7 @@ class ConversionWorker(QObject):
             img = img.astype("uint8")
             shape = img.shape
 
-            self.checkPoint(info, "[2]")
+            self.checkPoint(info, "[3]")
 
             # Write in PNG format:
             writer = png.Writer(shape[1], shape[0], greyscale=True)
@@ -616,16 +610,11 @@ class ConversionWorker(QObject):
             self.sig_msg.emit('[OK]: Finished converting "{}"'.format(basename))
         except self.AbortConversion as e:
             self.sig_msg.emit("[FAIL]: {}".format(str(e)))
-            t = QThread.currentThread()
-            if t.isRunning():
-                t.quit()  # This thread needs to quit!
             error_flag = True
         except Exception as e:
             self.sig_msg.emit('[FAIL]: Failed converting "{}" ({})'.format(basename, e))
-            t = QThread.currentThread()
-            if t.isRunning():
-                t.quit()  # This thread needs to quit!
             error_flag = True
+
         self.sig_done.emit(self.id, error_flag)
 
     def abort(self):
