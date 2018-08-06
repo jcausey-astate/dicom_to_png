@@ -201,6 +201,8 @@ def win_safe_path(path):
     Remove leading 'slash' in Windows paths, which should be relative or begin with 
     a drive letter, not a slash.
     """
+    if path is None or path == '':
+        return None
     # Sometimes in Windows, you end up with a path like '/C:/foo/bar' --- not sure why.
     if platform.system().lower() == "windows":
         if path[0] in ["/", "\\"]:
@@ -494,6 +496,8 @@ class ConverterWindow(QMainWindow):
         files = new_items["files"]
         dirs = new_items["dirs"]
         for dirname in dirs:
+            if dirname is None:
+                continue
             dir_files = []
             dirname = win_safe_path(dirname)
             if os.path.isdir(dirname):
@@ -510,6 +514,8 @@ class ConverterWindow(QMainWindow):
         else:
             self.addResponse("No new DICOM files were found.".format(len(files)))
         for fname in files:
+            if fname is None:
+                continue
             fname = win_safe_path(fname)
             if fname in converting:
                 self.setResponse("[ERROR]: {} added more than once.".format(fname))

@@ -6,3 +6,5 @@ pyinstaller --clean --window --onefile --hidden-import PyQt5.sip dicom_to_png.py
 ```
 
 (Tested on Windows 10.)
+
+To enable debug output on the console, omit the `--window` option.
