@@ -54,7 +54,13 @@ Press "Exit" to safely exit the converter application.  This button is automatic
 CLI not implemented yet.
 
 ## Features
-The DICOM image is processed by applying re-scaling as specified in the DICOM metadata, and if there is a LUT (intensity Look Up Table) present in the DICOM metadata, the (first available) LUT is applied as well.  Output is saved as greyscale PNG images in the output folder.
+The DICOM image is processed by applying re-scaling as specified in the DICOM metadata, and if there is a LUT (intensity Look Up Table) present in the DICOM metadata, the (first available) LUT is applied as well.  Output is saved as greyscale PNG images in the output folder, with a meaningful filename constructed in the following format:
+
+```text
+PatientID_InstanceHash.png
+```
+
+Where `PatientID` is the patient ID from the DICOM metadata, and `InstanceHash` is a 16-character identifier derived from `SOP Instance UID` value in the DICOM data.  The hash is used to disambiguate filenames when there are multiple images per patient.  (For the algorithm used to derive the hash, see [Hash Details](#hash-details) below.)
 
 ## Limitations
 This tool works for DICOM images that contain one "slice" per file.  Multi-slice (3+ dimensional) DICOM is not supported.  All files must be uniquely named; output filenames match the DICOM file names with the addition of the ".png" extension.
@@ -70,6 +76,15 @@ This tool works for DICOM images that contain one "slice" per file.  Multi-slice
                  ^
 SyntaxError: invalid syntax
 ```
+
+## Hash Details
+The `InstanceHash` portion of the output filename is derived as follows:
+
+1. The `SOP Instance UID` value is read from the DICOM header metadata.
+2. The *sha-1* hash is computed from this value, and encoded as hexadecimal.
+3. The leading 16 characters of the hash are used as the `InstanceHash` value.
+
+This instance hash was chosen to provide good balance between (short) filename length and (low) risk of a collision, in combination with Patient ID.
 
 ## MIT License
 
